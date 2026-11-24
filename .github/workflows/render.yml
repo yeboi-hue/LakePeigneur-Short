@@ -16,16 +16,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract uploaded project ZIP
-        shell: bash
-        run: |
-          set -euo pipefail
-          ZIP_FILE="$(find . -maxdepth 3 -type f -iname '*LakePeigneur*.zip' -not -path './.git/*' -print -quit || true)"
-          if [ -n "$ZIP_FILE" ]; then
-            mkdir -p _project_extract
-            unzip -oq "$ZIP_FILE" -d _project_extract
-          fi
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -41,44 +31,26 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
-      - name: Find project and prepare media
-        id: project
-        shell: bash
+      - name: Verify project files
         run: |
           set -euo pipefail
-          PROJECT_DIR="$(find . -type f -path '*/src/Root.tsx' -not -path './.git/*' -print -quit | sed 's#/src/Root.tsx$##')"
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "::error::Could not find a Remotion project containing src/Root.tsx."
-            find . -maxdepth 5 -type f -not -path './.git/*' | sort | head -250
-            exit 1
-          fi
-          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
-          echo "Found Remotion project at $PROJECT_DIR"
+          test -f package.json
+          test -f src/index.ts
+          test -f src/Root.tsx
+          test -f scripts/generate-narration.py
+          echo "Project files found."
 
       - name: Install Node dependencies
-        working-directory: ${{ steps.project.outputs.dir }}
         run: npm install
 
       - name: Ensure Remotion browser
-        working-directory: ${{ steps.project.outputs.dir }}
         run: npx remotion browser ensure
 
       - name: Generate narration and audio assets
-        working-directory: ${{ steps.project.outputs.dir }}
-        shell: bash
         run: |
           set -euo pipefail
-          if [ -f scripts/generate-narration.py ]; then
-            python -m pip install --upgrade edge-tts
-            python scripts/generate-narration.py
-          elif [ -f scripts/make_audio.py ]; then
-            python -m pip install --upgrade edge-tts
-            python scripts/make_audio.py
-          else
-            echo "::error::No supported narration script found in scripts/."
-            find scripts -maxdepth 2 -type f -print
-            exit 1
-          fi
+          python -m pip install --upgrade edge-tts
+          python scripts/generate-narration.py
 
           if [ -f scripts/generate-score.py ]; then
             python scripts/generate-score.py
@@ -91,16 +63,15 @@ jobs:
           fi
 
       - name: Render MP4
-        working-directory: ${{ steps.project.outputs.dir }}
         run: |
           mkdir -p out
-          npx remotion render src/index.ts LakePeigneurShort out/lake-peigneur.mp4 --codec h264 --crf 18 --scale 1 --concurrency 2
+          npx remotion render src/index.ts LakePeigneur out/lake-peigneur.mp4 --codec h264 --crf 18 --scale 1 --concurrency 2
 
       - name: Upload rendered MP4
         uses: actions/upload-artifact@v4
         with:
           name: lake-peigneur-short-mp4
-          path: ${{ steps.project.outputs.dir }}/out/lake-peigneur.mp4
+          path: out/lake-peigneur.mp4
           if-no-files-found: error
           retention-days: 14
           
